@@ -1,10 +1,10 @@
-# Testing Report (Milestone 3)
+# Testing Report
 
 Run all automated tests:
 ```bash
 python -m pytest -v
 ```
-Result on commit tested: **32 passed, 0 failed**.
+Result on commit tested: **37 passed, 0 failed**.
 
 This is a hardware project. Every criterion has an automated software test
 (logic checked against a motor model or known values). Criteria that need the
@@ -25,12 +25,13 @@ numbers we have not measured.
 | R2 (extra) | `test_R2_no_derivative_kick_on_setpoint_change` | output change = P + I only (38.4) | 38.4 (was +188 spike before fix B2) | PASS |
 | A3 (R3) | `test_A3_sim_settles_within_5_percent_under_1s` | settle in 114–126 RPM < 1.0 s | 0.32 s (simulation) | PASS (sim) |
 | A3 (R3) | Procedure P3 (real step 0→120 RPM) | settle < 1.0 s | pending hardware | — |
-| A4 (R4) | `test_A4_set_command_updates_gains_and_acknowledges` | Kp=2.0, Ki=0.1, Kd=0.0, SP=150, ACK sent | `ACK,150,2,0.1,0` | PASS |
+| A4 (R4) | `test_A4_set_command_updates_gains_and_acknowledges` | Kp=2.0, Ki=0.1, Kd=0.0, SP=150, ACK sent | `ACK,150,2.000,0.100,0.000` | PASS |
 | A4 (R4) | `test_A4_bad_command_is_rejected_and_settings_kept` | `ERR`, old gains kept | `ERR`, kept | PASS |
 | A4 (R4) | Procedure P4 (Serial Monitor at 115200) | ACK printed by Arduino | pending firmware | — |
 | A5 (R5) | `test_A5_sample_stream_is_100hz_with_no_dropped_frames` | 100 Hz, 0 dropped | 100.0 Hz, 0 dropped, 200 rows | PASS |
 | A5 (R5) | `test_A5_detects_dropped_frames` | gap 10→40 ms = 2 dropped | 2 | PASS |
 | A5 (R5) | `test_A5_malformed_line_does_not_crash_logger` | bad lines counted, no crash | 2 bad, 2 good | PASS |
+| A5 (R5) | `test_A5_replay_through_plotter_logs_every_frame` | plotter logs all 200 rows, file identical | 200 rows, identical | PASS |
 | A5 (R5) | Procedure P5 (live plot over USB) | no dropped frames in 10 s | pending hardware | — |
 
 ## 2. Validation against known values
@@ -60,13 +61,24 @@ We broke the code on purpose and confirmed each test catches it:
 
 ## 3. Hardware test procedures
 
-**Setup (all):** Arduino Mega 2560, L298N, 12 V gear motor with 334 CPR
-encoder, 12 V/2 A supply, USB to laptop at 115200 baud.
+**Setup (all):** Arduino Mega 2560 with `firmware/motor_pid/motor_pid.ino`,
+L298N, 12 V gear motor with 334 CPR encoder, 12 V/2 A supply, USB at 115200
+baud, wired as in `README.md`. Fill in the *Measured* lines only with values
+you actually measured, and keep the log files in `data/`.
 
-- **P1 – A1 speed accuracy:** Run the motor open-loop at a PWM that gives about 100 RPM. Put reflective tape on the output shaft and measure with an optical tachometer. Log 3 s of Arduino RPM. *Expected:* mean Arduino RPM within ±2 RPM of tachometer. *Measured:* pending.
-- **P3 – A3 settling:** Motor at rest, send `SET,120,1.2,8.0,0.0`, log 2 s, run `python -m src.run_sim`-style analysis on the log. *Expected:* stays within 114–126 RPM before 1.0 s. *Measured:* pending.
-- **P4 – A4 command:** While running, type `SET,150,2.0,0.1,0.0` in Serial Monitor. *Expected:* `ACK,150,2,0.1,0` and speed moves to 150 RPM. *Measured:* pending.
-- **P5 – A5 logging:** Run the plotting script for 10 s during a 120 RPM step. *Expected:* ~1000 rows, `dropped_frames == 0`. *Measured:* pending.
+- **P1 – A1 speed accuracy.** Put reflective tape on the output shaft. Send a setpoint of 100 RPM and wait 2 s. Measure the shaft with an optical tachometer while logging:
+  `python -m src.plot_live --port COM3 --set "SET,100,1.2,8.0,0.0" --seconds 5`
+  then `python -m src.analyze_log data/run_<time>.csv --reference-rpm <tachometer value>`.
+  *Expected:* mean error within ±2 RPM. Repeat at 60 and 150 RPM.
+  *Measured:* pending (tachometer: ___ RPM, Arduino mean: ___ RPM, error: ___ RPM).
+- **P3 – A3 settling.** Motor at rest. `python -m src.plot_live --port COM3 --set "SET,120,1.2,8.0,0.0" --seconds 3`, then `python -m src.analyze_log data/run_<time>.csv --setpoint 120`.
+  *Expected:* settling time < 1.0 s. *Measured:* pending (___ s, 3 runs: ___ / ___ / ___).
+- **P4 – A4 command.** Open the Serial Monitor (115200, newline), wait for `READY`, send `SET,120,1.2,8.0,0.0`, then `SET,150,2.0,0.1,0.0`.
+  *Expected:* `ACK,150,2.000,0.100,0.000` and the speed column moves to 150. Then send `SET,400,1,1,1` → `ERR,...`, speed unchanged.
+  *Measured:* pending.
+- **P5 – A5 logging.** `python -m src.plot_live --port COM3 --seconds 10`.
+  *Expected:* plot window updates live; printout shows `Rate 100.0 Hz, dropped frames: 0` and about 1000 rows.
+  *Measured:* pending.
 
 ## 4. Bug log
 
@@ -74,3 +86,4 @@ encoder, 12 V/2 A supply, USB to laptop at 115200 baud.
 |---|---|---|---|---|
 | B1 | A1 failed: speed error up to 3.9 RPM (limit ±2) | One edge in 10 ms = 4.49 RPM, so a single 10 ms window cannot resolve ±2 RPM. Spec asked for RPM "every 10 ms" and the first version also measured over only 10 ms. | 100 ms moving window, still updated every 10 ms → 0.45 RPM resolution. "Fix RPM quantization error with 100 ms moving window (A1)" | Yes – first version of `SpeedEstimator` was AI-written. Root cause partly in our spec. |
 | B2 | Derivative kick: setpoint 120→150 made PWM jump to 188 then drop to 41 | D term computed on error, so a setpoint step looks like an infinite rate of change. Also D spiked on the first call after reset. | Derivative on measurement, D = 0 on first call. "Fix derivative kick by differentiating measurement (R2)" | Yes – introduced in the Milestone 2 AI-written `pid.py`; not caught then because tests used Kd = 0. |
+| B3 | A4 acknowledgement text differed between Python (`ACK,150,2,0.1,0`) and firmware (`ACK,150,2.000,0.100,0.000`) | Python used `:g` formatting, Arduino `Serial.print(x, 3)` prints 3 decimals | Python now formats with 3 decimals; SPEC §5 documents the format. "Match ACK format to firmware output, 3-decimal gains (A4)" | Yes – both versions AI-written; found when writing the firmware. |
