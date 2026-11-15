@@ -1,80 +1,87 @@
- Project 1: DC Motor PID Speed Control System
+# Project 1: DC Motor PID Speed Control System
 
 ## Project Overview
 Precise motor velocity control is fundamental in robotics, automated manufacturing, and automotive actuation. Uncontrolled DC motors experience speed fluctuations due to load variations, voltage drops, and friction. This project implements a closed-loop Proportional-Integral-Derivative (PID) speed controller using an Arduino Mega 2560 and a quadrature encoder, paired with a real-time plotting utility to analyze transient and steady-state responses.
-
-## Why It Matters
-In mechatronics systems, open-loop motor actuation is insufficient for precise motion. Implementing closed-loop control demonstrates core principles of feedback systems, real-time data logging, digital signal processing via hardware interrupts, and system tuning.
 
 ## Team Members & Roles
 * **Nabih Harb** – Firmware Development, PID Controller Implementation, Hardware Integration
 * **Hussein Haidar** – Data Logging Script, Serial Communication Protocol, Testing & Documentation
 
-## Tools & Hardware Plan
-* **Microcontroller & Hardware:** Arduino Mega 2560 Rev3, L298N H-Bridge Driver, 12V DC Motor with Quadrature Encoder, External Power Supply.
-* **Firmware:** Arduino C++ (Interrupt-driven encoder reading, $100\text{ Hz}$ timer loop).
-* **Software & Analysis:** Python 3 (`pyserial`, `matplotlib`) for real-time visualization and step-response analysis.
-* **Version Control:** GitHub for specification tracking, firmware code hosting, and project documentation.
-
----
-
 ## Repository Structure
 ```
-README.md          Project overview, how to run, status
-SPEC.md            Approved specification (R1–R5, acceptance criteria)
-AI_USE.md          Log of AI tool usage
-requirements.txt   Python dependencies
-src/pid.py         PID controller with integral anti-windup (R2)
-src/motor_sim.py   First-order DC motor model (testing without hardware)
-src/protocol.py    Serial SET command / telemetry formats (SPEC §5)
-src/run_sim.py     Runs a simulated 120 RPM step response
-src/encoder.py     Encoder edges -> RPM with 100 ms moving window (R1)
-src/controller.py  SET command handling with ACK/ERR reply (R4)
-src/logger.py      Telemetry parsing and dropped-frame check (R5)
-TESTING.md         Test results, validation and bug log
-tests/             pytest tests for the acceptance criteria
-data/sample_step.csv  Small sample telemetry output (200 rows)
+README.md            This file: install, run, test
+SPEC.md              Approved specification + changes since approval (section 8)
+TESTING.md           Test results for every acceptance criterion, validation, bug log
+AI_USE.md            AI Use Disclosure
+requirements.txt     Python dependencies
+firmware/motor_pid/  Arduino sketch (encoder ISR, PID, Serial commands, telemetry)
+src/pid.py           PID with anti-windup and derivative on measurement (R2)
+src/encoder.py       Encoder edges -> RPM, 100 ms moving window (R1)
+src/controller.py    SET command handling with ACK/ERR reply (R4)
+src/protocol.py      Serial message formats (SPEC section 5)
+src/logger.py        Telemetry parsing and dropped-frame check (R5)
+src/plot_live.py     Live plot + CSV logger from the Arduino, or replay of a CSV (R5)
+src/analyze_log.py   Computes A1/A3/A5 results from a logged run
+src/motor_sim.py     First-order motor model (testing without hardware)
+src/run_sim.py       Simulated 120 RPM step response
+tests/               pytest tests, named after the acceptance criteria (A1..A5)
+data/sample_step.csv Small sample telemetry file (200 rows, 2 s)
+report/              Technical report (PDF) and its source
 ```
 
-## Install and Run (Milestone 2 prototype)
-Requires Python 3.10+.
+## Hardware Setup
+| From | To |
+|---|---|
+| Encoder channel A | Mega pin 2 (interrupt) |
+| Encoder channel B | Mega pin 3 (interrupt) |
+| Encoder VCC / GND | Mega 5V / GND |
+| L298N ENA (remove jumper) | Mega pin 5 (PWM) |
+| L298N IN1 / IN2 | Mega pin 7 / pin 8 |
+| L298N OUT1 / OUT2 | Motor + / − |
+| L298N 12V / GND | 12 V 2 A supply + / − (GND shared with Mega) |
 
+If the measured RPM stays at 0 while the motor spins, swap encoder A and B or the motor wires.
+
+## Install (Python 3.10+)
 ```bash
 git clone https://github.com/NabihHarb/Project1-DC-Motor-PID1.git
 cd Project1-DC-Motor-PID1
 python -m venv .venv
-source .venv/bin/activate        # Windows: .venv\Scripts\activate
+source .venv/bin/activate        # Windows PowerShell: .venv\Scripts\activate   Git Bash: source .venv/Scripts/activate
 pip install -r requirements.txt
 ```
 
-Run the tests:
-```bash
-python -m pytest -v
-```
+## Upload the Firmware
+1. Open `firmware/motor_pid/motor_pid.ino` in the Arduino IDE 2.x.
+2. Tools → Board → **Arduino Mega or Mega 2560**; Tools → Port → your port (e.g. `COM3`).
+3. Click **Upload**. Close the Serial Monitor before running the Python scripts.
 
-Run the simulated step response (writes `data/sample_step.csv`; add `--plot` to see the graph):
+## Run
+Live step response from the motor (saves `data/run_<time>.csv`):
 ```bash
+python -m src.plot_live --port COM3 --set "SET,120,1.2,8.0,0.0" --seconds 5
+```
+Check the acceptance criteria on that log:
+```bash
+python -m src.analyze_log data/run_YYYYMMDD_HHMMSS.csv --setpoint 120
+```
+Without hardware (replay the sample data, or simulate):
+```bash
+python -m src.plot_live --replay data/sample_step.csv
 python -m src.run_sim --plot
 ```
 
-## Requirement Met: R2 (PID with anti-windup)
-The PID algorithm in `src/pid.py` mirrors the firmware logic that will run at 100 Hz on the Arduino. Because the hardware is not wired yet, it is tested against a simulated motor (`src/motor_sim.py`).
+## Test
+```bash
+python -m pytest -v
+```
+Expected: **37 passed**. Results per criterion are in [TESTING.md](TESTING.md).
 
-**Acceptance criterion A2:** *Given the output saturates at PWM 255, when the error persists, then the integral term is clamped.*
-
-How we checked it (`tests/test_pid.py`): a 300 RPM target is commanded on a loaded motor that can only reach 240 RPM, so the PWM is held at 255 for 3 s. The setpoint then drops to 120 RPM.
-
-| Check | Result |
-|---|---|
-| PWM output reaches 255 and never leaves 0–255 | PASS |
-| Integral stays within its limits (Ki·I ≤ 255) during saturation | PASS |
-| Without anti-windup the integral winds up and the motor overshoots 126 RPM for longer; with anti-windup it recovers faster | PASS |
-
-Test run result: **12 passed** at Milestone 2. Milestone 3 status: **32 passed**, see [TESTING.md](TESTING.md) for every criterion, validation results and the bug log.
-
-### Also prepared (partial, not yet claimed as met)
-* **R3 (simulation only):** the simulated 120 RPM step settles within ±5% in **0.32 s** (< 1.0 s). It still has to be confirmed on the real motor.
-* **R4/R5:** the `SET,...` command parser and telemetry format are implemented and tested. Serial communication with the Arduino comes in the next milestone.
-
-### Next steps
-Arduino firmware (encoder interrupts for R1, Serial commands for R4), the live plotting script (R5) and hardware tuning (R3).
+## Requirement Status
+| Req | Status | Where | Evidence |
+|---|---|---|---|
+| R1 Encoder RPM every 10 ms | Implemented | `firmware/`, `src/encoder.py` | A1 tests pass (worst 0.36 RPM, software); tachometer check P1 in TESTING.md |
+| R2 PID with anti-windup | Implemented | `firmware/`, `src/pid.py` | A2 tests pass |
+| R3 Settle ±5 % of 120 RPM in < 1 s | Implemented; met in simulation (0.32 s) | `src/run_sim.py` | Hardware result: see TESTING.md P3 |
+| R4 SET command + ACK at 115200 | Implemented | `firmware/`, `src/controller.py` | A4 tests pass; P4 on hardware |
+| R5 Telemetry + live plot | Implemented | `firmware/`, `src/plot_live.py` | A5 tests pass (100 Hz, 0 dropped); P5 on hardware |
