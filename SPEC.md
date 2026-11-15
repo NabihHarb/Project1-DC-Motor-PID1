@@ -36,6 +36,7 @@
 
 ### Outputs
 * **Serial Telemetry Stream (Arduino $\rightarrow$ Host):**
+  * Acknowledgement (Arduino $\rightarrow$ Host): `ACK,<setpoint>,<Kp>,<Ki>,<Kd>` (gains with 3 decimals) or `ERR,<reason>` for invalid commands.
   * Format: `<timestamp_ms>,<setpoint_rpm>,<measured_rpm>,<pwm_output>\n`
   * Example: `1000,120,118.5,142`
 * **Desktop Plot:** A 2D plot showing target speed vs. actual speed over time.
@@ -74,6 +75,16 @@
   * Dual-channel motor synchronization.
 * **Open Questions:**
   * Will motor loading under external mechanical resistance require feedforward terms in addition to PID?
+
+## 8. Changes Since Approval
+
+| Date | Section | Change | Why |
+|---|---|---|---|
+| Nov 15, 2026 | R1 | RPM is still updated every 10 ms, but computed from the encoder edges of the last 100 ms (moving window). | One edge in a 10 ms window equals 4.49 RPM, so a single 10 ms window cannot meet A1 (±2 RPM). Found by test `test_A1_rpm_within_2rpm_every_10ms` (bug B1 in `TESTING.md`). |
+| Nov 15, 2026 | R2 | The derivative term is computed on the measured speed, not on the error. | Avoids a PWM spike ("derivative kick") when the setpoint changes (bug B2). |
+| Nov 15, 2026 | §5 Interfaces | Defined the acknowledgement message `ACK,...` and `ERR,...`. | A4 required "an acknowledgement message" but its format was not specified. |
+| Nov 15, 2026 | §2 Context | Encoder decoded in 4x quadrature mode: 334 × 4 = 1336 edges per revolution. | Spec gave 334 CPR but not the decoding mode, which the RPM formula needs. |
+| Nov 15, 2026 | R4 | Setpoints outside 0–300 RPM are rejected with `ERR`, settings kept. | Enforces the 300 RPM constraint (§4). |
 
 ---
 
