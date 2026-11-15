@@ -26,7 +26,8 @@ src/motor_sim.py     First-order motor model (testing without hardware)
 src/run_sim.py       Simulated 120 RPM step response
 tests/               pytest tests, named after the acceptance criteria (A1..A5)
 data/sample_step.csv Small sample telemetry file (200 rows, 2 s)
-report/              Technical report (PDF) and its source
+report/              Technical report: report.pdf, report.html, make_figures.py
+DEMO.md              8-minute demo plan
 ```
 
 ## Hardware Setup
@@ -85,3 +86,7 @@ Expected: **37 passed**. Results per criterion are in [TESTING.md](TESTING.md).
 | R3 Settle ±5 % of 120 RPM in < 1 s | Implemented; met in simulation (0.32 s) | `src/run_sim.py` | Hardware result: see TESTING.md P3 |
 | R4 SET command + ACK at 115200 | Implemented | `firmware/`, `src/controller.py` | A4 tests pass; P4 on hardware |
 | R5 Telemetry + live plot | Implemented | `firmware/`, `src/plot_live.py` | A5 tests pass (100 Hz, 0 dropped); P5 on hardware |
+
+## Report
+`report/report.pdf` (source `report/report.html`). Regenerate the figures with `python -m report.make_figures`.
+After adding bench results to `report/report.html`, open it in Chrome or Edge → Ctrl+P → **Save as PDF** (A4, background graphics on).
