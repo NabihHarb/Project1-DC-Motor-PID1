@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Virtual environments
+.venv/
+venv/
+
+# Secrets / local config
+.env
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+
+# Generated outputs (sample CSV in data/ is committed on purpose)
+*.png
