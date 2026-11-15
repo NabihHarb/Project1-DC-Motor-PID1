@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<title>DC Motor PID Report</title>
+<style>
+  @page { size: A4; margin: 18mm 18mm 18mm 18mm; }
+  :root { --ink:#1d1d1d; --muted:#5f5f5f; --rule:#d9d9d9; --accent:#2a78d6; --pending:#fff4d6; }
+  body { background:#fff; color:var(--ink); font: 10pt/1.38 "Georgia", "Times New Roman", serif; margin:0; }
+  h1 { font: 700 17pt/1.2 Arial, sans-serif; margin:0 0 2mm; }
+  h2 { font: 700 12pt/1.3 Arial, sans-serif; margin:5mm 0 1.5mm; color:var(--accent); }
+  h3 { font: 700 10.2pt/1.3 Arial, sans-serif; margin:3mm 0 1mm; }
+  .meta { color:var(--muted); font: 9pt Arial, sans-serif; margin-bottom:4mm; border-bottom:1px solid var(--rule); padding-bottom:3mm; }
+  p { margin:0 0 2mm; text-align: justify; }
+  ul { margin:0 0 2mm; padding-left:5mm; }
+  figure { margin:2mm 0 3mm; break-inside: avoid; }
+  figure img { width:86%; display:block; margin:0 auto; }
+  figcaption { font: 8.5pt/1.3 Arial, sans-serif; color:var(--muted); }
+  table { border-collapse: collapse; width:100%; font: 8.4pt/1.3 Arial, sans-serif; margin:1mm 0 3mm; break-inside: auto; }
+  th, td { border-bottom:1px solid var(--rule); padding:1.2mm 1.5mm; text-align:left; vertical-align:top; }
+  th { border-bottom:1.5px solid var(--ink); }
+  tr { break-inside: avoid; }
+  td.pending { background:var(--pending); }
+  code { font: 8.6pt Consolas, monospace; }
+  .refs li { font-size: 8.6pt; margin-bottom:0.5mm; }
+  .appendix { break-before: page; }
+  .small { font-size: 9pt; }
+</style></head>
+<body>
+
+<h1>Closed-Loop PID Speed Control of a DC Motor</h1>
+<div class="meta">Project 1 – Final Report &nbsp;·&nbsp; Nabih Harb &amp; Hussein Haidar &nbsp;·&nbsp; November 2026 &nbsp;·&nbsp;
+Repository: github.com/NabihHarb/Project1-DC-Motor-PID1</div>
+
+<h2>1. Problem and Goal</h2>
+<p>A DC motor driven with a fixed PWM duty cycle (open loop) does not hold a constant speed: the speed drops when the load or the supply voltage changes and differs from motor to motor because of friction. Many mechatronic systems (conveyors, robot wheels, pumps) need a defined speed regardless of these disturbances, which requires feedback control [1].</p>
+<p>The goal of this project is a closed-loop speed controller on an Arduino Mega 2560 that measures the speed of a 12&nbsp;V gear motor with a quadrature encoder and adjusts the PWM with a PID controller, plus a Python tool on a PC that changes the gains and plots the step response live. The target users are control students and lab instructors who want to try PID tuning on real hardware. The approved specification defines five requirements: speed measurement every 10&nbsp;ms (R1), PID with anti-windup (R2), settling within ±5&nbsp;% of 120&nbsp;RPM in under 1&nbsp;s (R3), gains and setpoint over Serial at 115200 baud (R4), and logging and live plotting at 100&nbsp;Hz (R5).</p>
+
+<h2>2. Design</h2>
+<figure><img src="figures/fig1_system.png" alt="System block diagram">
+<figcaption>Figure 1 – System architecture. The Arduino runs the complete control loop at 100 Hz; the PC only sends commands and receives telemetry.</figcaption></figure>
+<p><b>Speed measurement (R1).</b> Encoder channels A and B are connected to the interrupt pins 2 and 3 of the Mega [3]. Every edge on either channel calls an interrupt routine that decodes the quadrature state with a 16-entry lookup table (4× decoding), giving 334 × 4 = 1336 edges per revolution. Every 10&nbsp;ms the main loop reads the counter and computes</p>
+<p style="text-align:center"><i>RPM = edges / 1336 / Δt × 60</i>.</p>
+<p>One edge in a 10&nbsp;ms window is worth 60 / (1336 × 0.01) = 4.49&nbsp;RPM, which is coarser than the ±2&nbsp;RPM required by A1. The first version therefore failed its test (bug B1). The final design sums the edges of the last 10 periods (100&nbsp;ms moving window), which still delivers a new value every 10&nbsp;ms but with 0.45&nbsp;RPM resolution. The cost is a delay of about 50&nbsp;ms in the measurement.</p>
+<p><b>Controller (R2).</b> The discrete PID runs at a fixed period Δt = 10&nbsp;ms using a non-blocking <code>micros()</code> scheduler:</p>
+<p style="text-align:center"><i>u = K<sub>p</sub>·e + K<sub>i</sub>·I − K<sub>d</sub>·(y<sub>k</sub> − y<sub>k−1</sub>)/Δt,&nbsp;&nbsp; I ← clamp(I + e·Δt, 0, 255/K<sub>i</sub>)</i></p>
+<p>The output is limited to the PWM range 0–255. Clamping the integral so that K<sub>i</sub>·I can never exceed the output range is a standard anti-windup method [1]. The derivative is computed on the measured speed instead of the error, so a setpoint change does not create a spike (“derivative kick”) [2]; this replaced the first version after bug B2. The L298N H-bridge [5] converts the PWM into the 12&nbsp;V motor voltage.</p>
+<p><b>Communication (R4, R5).</b> The PC sends <code>SET,&lt;rpm&gt;,&lt;Kp&gt;,&lt;Ki&gt;,&lt;Kd&gt;</code>. The firmware validates the line (five fields, numbers, setpoint 0–300&nbsp;RPM) and answers <code>ACK,…</code> or <code>ERR,&lt;reason&gt;</code> without changing the settings. Every 10&nbsp;ms it sends <code>t,setpoint,rpm,pwm</code> (≈ 21 bytes, 2.1 kB/s, well below the 11.5 kB/s of 115200 baud). <code>plot_live.py</code> uses pySerial [6] and Matplotlib [7] to log every line to CSV and redraw the plot at 20&nbsp;Hz, so plotting cannot slow down logging. <code>analyze_log.py</code> computes the settling time, dropped frames and the error against a tachometer reading from any log.</p>
+<p><b>Software testing without hardware.</b> All controller logic exists twice: in C++ in the firmware and as tested Python modules in <code>src/</code>. The Python modules run against a first-order motor model τ·dω/dt = K·u − ω [8] with τ = 0.15&nbsp;s and 300&nbsp;RPM at full PWM. 37 pytest tests cover all acceptance criteria.</p>
+
+<h2>3. Results</h2>
+<p>Table 1 summarises the evidence for each acceptance criterion. Rows marked “pending” (shaded) are bench measurements that are carried out with the procedures P1–P5 in <code>TESTING.md</code>; they are filled in only with measured values.</p>
+<table>
+<tr><th>Crit.</th><th>Evidence</th><th>Expected</th><th>Result</th><th>Verdict</th></tr>
+<tr><td>A1</td><td>Test: ideal encoder at 50–300 RPM, every 10 ms sample</td><td>≤ ±2 RPM</td><td>worst 0.36 RPM (single-window version: 3.89 RPM)</td><td>Pass</td></tr>
+<tr><td>A1</td><td>P1: optical tachometer at 100 RPM</td><td>≤ ±2 RPM</td><td class="pending">pending – ___ RPM</td><td class="pending"></td></tr>
+<tr><td>A2</td><td>Test: PWM saturated at 255 for 3 s, then setpoint 300 → 120 RPM</td><td>K<sub>i</sub>·I ≤ 255; faster recovery than without clamp</td><td>clamped; recovery ≈ 0.3 s vs ≈ 2 s (Fig. 3)</td><td>Pass</td></tr>
+<tr><td>A3</td><td>Simulation of 0 → 120 RPM step</td><td>in 114–126 RPM before 1.0 s</td><td>0.32 s, no overshoot (Fig. 2)</td><td>Pass (sim.)</td></tr>
+<tr><td>A3</td><td>P3: motor step response, 3 runs</td><td>&lt; 1.0 s</td><td class="pending">pending – ___ s</td><td class="pending"></td></tr>
+<tr><td>A4</td><td>Test: <code>SET,150,2.0,0.1,0.0</code> while running; invalid lines</td><td>gains + setpoint updated, ACK; ERR keeps settings</td><td><code>ACK,150,2.000,0.100,0.000</code>; ERR, unchanged</td><td>Pass</td></tr>
+<tr><td>A4</td><td>P4: same command in Serial Monitor</td><td>ACK, speed → 150 RPM</td><td class="pending">pending</td><td class="pending"></td></tr>
+<tr><td>A5</td><td>Test: 200-row log through plotter, gap detection</td><td>100 Hz, 0 dropped</td><td>100.0 Hz, 0 dropped, file identical</td><td>Pass</td></tr>
+<tr><td>A5</td><td>P5: 10 s live run over USB</td><td>~1000 rows, 0 dropped</td><td class="pending">pending</td><td class="pending"></td></tr>
+</table>
+<p class="small" style="text-align:left"><b>Table 1</b> – Results per acceptance criterion (all 37 automated tests pass).</p>
+
+<figure><img src="figures/fig2_step.png" alt="Simulated step response">
+<figcaption>Figure 2 – A3: simulated step to 120 RPM. The speed enters and stays in the ±5 % band after 0.32 s; the PWM starts at 154 and settles at about 102.</figcaption></figure>
+<figure><img src="figures/fig3_windup.png" alt="Anti-windup comparison">
+<figcaption>Figure 3 – A2: with the integral clamp the motor reaches 120 RPM about 0.3 s after the setpoint drop; without it the wound-up integral keeps the PWM at 255 for about 1.4 s longer.</figcaption></figure>
+<figure><img src="figures/fig4_encoder.png" alt="Encoder error">
+<figcaption>Figure 4 – A1: error of the speed estimate at a true 100 RPM. A single 10 ms window jumps between −1.2 and +3.3 RPM; the 100 ms window stays within ±0.4 RPM.</figcaption></figure>
+
+<h3>Validation against known values</h3>
+<table>
+<tr><th>Quantity</th><th>Trusted reference</th><th>Our output</th><th>Error</th></tr>
+<tr><td>RPM formula</td><td>Hand calculation: 1336 edges in 1 s = 60 RPM; 2226.67 edges in 1 s = 100 RPM</td><td>60.00 / 100.00 RPM</td><td>&lt; 0.01 RPM</td></tr>
+<tr><td>Speed estimate 50–300 RPM</td><td>Exact speed of an ideal encoder</td><td>worst 0.36 RPM</td><td>within 0.36 RPM at 50, 100, 120, 200, 300 RPM</td></tr>
+<tr><td>Motor model, PWM 64/128/200</td><td>Analytic first-order response ω = K·u·(1 − e<sup>−t/τ</sup>) [8]</td><td>max deviation 0.95 / 1.90 / 2.97 RPM</td><td>1.26 % of final speed</td></tr>
+<tr><td>Time constant</td><td>63.2 % of final value at t = τ [8]</td><td>64.5 %</td><td>1.3 percentage points</td></tr>
+<tr><td>Encoder vs tachometer</td><td>Handheld optical tachometer, 60/100/150 RPM</td><td class="pending">pending</td><td class="pending">pending</td></tr>
+</table>
+<p>To check that the tests can actually detect faults, five deliberate bugs were inserted (anti-windup removed, 10 ms window restored, setpoint not updated, off-by-one in the frame counter, 4× slower motor). Each was caught by the corresponding test.</p>
+
+<h2>4. Limitations</h2>
+<ul>
+<li><b>Hardware results are not yet confirmed.</b> All passing results above come from software tests and a simulated motor. The real settling time depends on the motor’s actual time constant, friction and dead band, which the model does not include; the gains K<sub>p</sub> = 1.2, K<sub>i</sub> = 8.0 are starting values and will probably need tuning on the bench.</li>
+<li><b>Estimated motor parameters.</b> τ = 0.15 s and 300 RPM at PWM 255 are estimates, not measurements. A real open-loop step would identify them.</li>
+<li><b>Measurement delay.</b> The 100 ms window that fixes A1 adds about 50 ms of lag to the feedback, which reduces the phase margin and limits how aggressive the gains can be. A period-based measurement (time between edges) would avoid this at low speed.</li>
+<li><b>One direction only.</b> The controller drives the motor forward and does not brake actively; a setpoint decrease relies on friction to slow the motor down.</li>
+<li><b>Firmware not compiled in our CI.</b> The C++ firmware duplicates the Python logic by hand. It is compiled in the Arduino IDE, but there is no automatic check that both versions stay identical (bug B3 was such a mismatch).</li>
+<li><b>No load disturbance test.</b> The spec’s open question about feedforward under external load remains open.</li>
+</ul>
+
+<h2>5. Discussion</h2>
+<p>The most useful lesson was that writing the test first exposes design errors in the specification itself: the requirement “RPM every 10 ms” and the accuracy “±2 RPM” cannot both hold with a single 10 ms window, which a two-line hand calculation shows but which we did not see when writing the spec. We also learned that tests only check what they exercise: the derivative kick existed from Milestone 2 but was invisible because every test used K<sub>d</sub> = 0. Testing the controller against a simulated motor let us develop and debug the logic before the hardware was ready, and the mutation check gave us confidence that the tests are meaningful.</p>
+<p>If we started again we would (1) identify the motor model from a real open-loop step in the first week and tune the gains on it, (2) generate the C++ constants and test vectors from one shared source so firmware and Python cannot drift apart, (3) write the hand calculations for each acceptance criterion while writing the spec, and (4) run the hardware procedures continuously instead of at the end.</p>
+
+<h2>References</h2>
+<ol class="refs">
+<li>K. J. Åström and R. M. Murray, <i>Feedback Systems: An Introduction for Scientists and Engineers</i>, 2nd ed. Princeton University Press, 2021, ch. 11 (PID control, integrator windup).</li>
+<li>B. Beauregard, “Improving the Beginner’s PID – Derivative Kick,” brettbeauregard.com, 2011.</li>
+<li>Arduino, “attachInterrupt()” language reference, docs.arduino.cc (accessed Nov. 2026).</li>
+<li>Arduino, “Arduino Mega 2560 Rev3” product documentation, docs.arduino.cc (accessed Nov. 2026).</li>
+<li>STMicroelectronics, “L298 Dual Full-Bridge Driver,” datasheet.</li>
+<li>C. Liechti, “pySerial documentation,” pyserial.readthedocs.io (accessed Nov. 2026).</li>
+<li>J. D. Hunter, “Matplotlib: A 2D graphics environment,” <i>Computing in Science &amp; Engineering</i>, vol. 9, no. 3, pp. 90–95, 2007.</li>
+<li>K. Ogata, <i>Modern Control Engineering</i>, 5th ed. Prentice Hall, 2010, ch. 5 (first-order system response).</li>
+</ol>
+
+<div class="appendix">
+<h2>Appendix – AI Use Disclosure</h2>
+<h3>1. Tools used</h3>
+<p>Gemini (Google) in Milestone 1; Claude Code (Anthropic) in Milestones 2–4.</p>
+<h3>2. How they were used</h3>
+<p>Gemini produced a first template for the specification, which we revised. Claude Code wrote most of the code, tests, firmware and documentation from our milestone briefs in a cloud copy of the repository, ran the tests, and drafted this report. We pushed its commits from our own computers, reviewed the files, re-ran the tests locally and are responsible for all content.</p>
+<h3>3. Significant prompts</h3>
+<ul class="small">
+<li>M1 (Gemini): “Generate a 7-section SPEC.md for a DC motor PID speed control project with numbered testable requirements, acceptance criteria, and a proposal for README.md.”</li>
+<li>M2 (Claude): the Milestone 2 brief – organise the repository and build a first prototype meeting one requirement; “explain it before execution”.</li>
+<li>M3 (Claude): the Milestone 3 brief – one test per acceptance criterion, validation, TESTING.md with bug log.</li>
+<li>M4 (Claude): the final brief – implement all requirements, update the documents, write this report.</li>
+</ul>
+<h3>4. AI-generated contributions</h3>
+<table>
+<tr><th>Files / functions</th><th>Tool</th></tr>
+<tr><td>SPEC.md first draft</td><td>Gemini</td></tr>
+<tr><td><code>firmware/motor_pid/motor_pid.ino</code>; <code>src/pid.py</code>, <code>encoder.py</code>, <code>controller.py</code>, <code>protocol.py</code>, <code>logger.py</code>, <code>plot_live.py</code>, <code>analyze_log.py</code>, <code>motor_sim.py</code>, <code>run_sim.py</code>; all tests; <code>TESTING.md</code>; figures and draft of this report</td><td>Claude Code</td></tr>
+<tr><td>Problem choice, hardware selection, requirements, team roles, bench measurements</td><td>Our own work</td></tr>
+</table>
+<h3>5. Corrections and verification</h3>
+<table>
+<tr><th>What was wrong</th><th>How found</th><th>Fix</th></tr>
+<tr><td>B1: RPM from one 10 ms window, error up to 3.9 RPM</td><td>A1 test failed; hand calculation 4.49 RPM per edge</td><td>100 ms moving window; SPEC §8 updated</td></tr>
+<tr><td>B2: derivative kick in the PID</td><td>New test with K<sub>d</sub> &gt; 0</td><td>Derivative on measurement</td></tr>
+<tr><td>B3: ACK format differed between Python and firmware</td><td>Comparison while writing the firmware</td><td>Unified to 3 decimals; SPEC §5</td></tr>
+</table>
+<p class="small">Tests were checked with expected values from hand calculations and textbook formulas, a mutation check (five deliberate bugs, all caught), and by observing the B1/B2 tests fail before and pass after the fixes. AI output is not cited as a source.</p>
+</div>
+</body></html>

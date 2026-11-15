@@ -17,3 +17,4 @@ venv/
 
 # Generated outputs (sample CSV in data/ is committed on purpose)
 *.png
+!report/figures/*.png
