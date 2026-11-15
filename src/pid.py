@@ -19,7 +19,7 @@ class PID:
 
     def reset(self):
         self.integral = 0.0
-        self.prev_error = 0.0
+        self.prev_measured = None
 
     def set_gains(self, kp, ki, kd):
         self.kp, self.ki, self.kd = kp, ki, kd
@@ -37,8 +37,13 @@ class PID:
         if self.anti_windup:
             lo, hi = self.integral_limits()
             self.integral = max(lo, min(hi, self.integral))
-        derivative = (error - self.prev_error) / self.dt
-        self.prev_error = error
+        # Derivative on measurement (not error) avoids a spike when the
+        # setpoint changes; the first call has no history, so D = 0.
+        if self.prev_measured is None:
+            derivative = 0.0
+        else:
+            derivative = -(measured - self.prev_measured) / self.dt
+        self.prev_measured = measured
 
         output = self.kp * error + self.ki * self.integral + self.kd * derivative
         return max(self.out_min, min(self.out_max, output))
