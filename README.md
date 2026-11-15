@@ -28,6 +28,10 @@ src/pid.py         PID controller with integral anti-windup (R2)
 src/motor_sim.py   First-order DC motor model (testing without hardware)
 src/protocol.py    Serial SET command / telemetry formats (SPEC §5)
 src/run_sim.py     Runs a simulated 120 RPM step response
+src/encoder.py     Encoder edges -> RPM with 100 ms moving window (R1)
+src/controller.py  SET command handling with ACK/ERR reply (R4)
+src/logger.py      Telemetry parsing and dropped-frame check (R5)
+TESTING.md         Test results, validation and bug log
 tests/             pytest tests for the acceptance criteria
 data/sample_step.csv  Small sample telemetry output (200 rows)
 ```
@@ -66,7 +70,7 @@ How we checked it (`tests/test_pid.py`): a 300 RPM target is commanded on a load
 | Integral stays within its limits (Ki·I ≤ 255) during saturation | PASS |
 | Without anti-windup the integral winds up and the motor overshoots 126 RPM for longer; with anti-windup it recovers faster | PASS |
 
-Test run result: **12 passed** (`python -m pytest -v`).
+Test run result: **12 passed** at Milestone 2. Milestone 3 status: **32 passed**, see [TESTING.md](TESTING.md) for every criterion, validation results and the bug log.
 
 ### Also prepared (partial, not yet claimed as met)
 * **R3 (simulation only):** the simulated 120 RPM step settles within ±5% in **0.32 s** (< 1.0 s). It still has to be confirmed on the real motor.
