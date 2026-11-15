@@ -8,7 +8,7 @@ def test_A4_set_command_updates_gains_and_acknowledges():
     reply = c.handle_command("SET,150,2.0,0.1,0.0\n")
     assert (c.pid.kp, c.pid.ki, c.pid.kd) == (2.0, 0.1, 0.0)
     assert c.setpoint == 150
-    assert reply == "ACK,150,2,0.1,0"
+    assert reply == "ACK,150,2.000,0.100,0.000"
 
 
 def test_A4_bad_command_is_rejected_and_settings_kept():

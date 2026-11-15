@@ -20,7 +20,7 @@ class Controller:
             return f"ERR,{e}"
         self.setpoint = cmd["setpoint"]
         self.pid.set_gains(cmd["kp"], cmd["ki"], cmd["kd"])
-        return "ACK,{setpoint:g},{kp:g},{ki:g},{kd:g}".format(**cmd)
+        return "ACK,{setpoint:.0f},{kp:.3f},{ki:.3f},{kd:.3f}".format(**cmd)
 
     def step(self, measured_rpm):
         return self.pid.update(self.setpoint, measured_rpm)
