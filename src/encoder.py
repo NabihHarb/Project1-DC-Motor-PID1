@@ -14,11 +14,26 @@ def counts_to_rpm(counts, dt=DT, edges_per_rev=EDGES_PER_REV):
     return counts / edges_per_rev / dt * 60.0
 
 
+WINDOW = 10   # samples in the moving window (10 x 10 ms = 100 ms)
+
+
 class SpeedEstimator:
-    """Called every 10 ms with the edges counted since the last call."""
+    """Called every 10 ms with the edges counted since the last call.
+
+    A single 10 ms window has a resolution of 60/(1336*0.01) = 4.49 RPM per
+    edge, which cannot meet A1 (+/-2 RPM). Summing the last WINDOW samples
+    still gives a new value every 10 ms, with 0.45 RPM resolution.
+    """
+
+    def __init__(self, window=WINDOW):
+        self.window = window
+        self.history = []
 
     def update(self, counts):
-        return counts_to_rpm(counts)
+        self.history.append(counts)
+        if len(self.history) > self.window:
+            self.history.pop(0)
+        return counts_to_rpm(sum(self.history), dt=DT * len(self.history))
 
 
 def simulate_counts(rpm, n_samples, dt=DT, edges_per_rev=EDGES_PER_REV):
