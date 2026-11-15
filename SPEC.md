@@ -36,9 +36,10 @@
 
 ### Outputs
 * **Serial Telemetry Stream (Arduino $\rightarrow$ Host):**
-  * Acknowledgement (Arduino $\rightarrow$ Host): `ACK,<setpoint>,<Kp>,<Ki>,<Kd>` (gains with 3 decimals) or `ERR,<reason>` for invalid commands.
   * Format: `<timestamp_ms>,<setpoint_rpm>,<measured_rpm>,<pwm_output>\n`
   * Example: `1000,120,118.5,142`
+* **Command Acknowledgement (Arduino $\rightarrow$ Host):** `ACK,<setpoint>,<Kp>,<Ki>,<Kd>` (gains with 3 decimals), or `ERR,<reason>` for invalid commands.
+  * Example: `ACK,150,2.000,0.100,0.000`
 * **Desktop Plot:** A 2D plot showing target speed vs. actual speed over time.
 
 ## 6. Acceptance Criteria
